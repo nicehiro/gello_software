@@ -22,8 +22,8 @@ class DynamixelRobotConfig:
     This will be different for each arm design. Refernce the examples below for the correct signs for your robot.
     """
 
-    gripper_config: Tuple[int, int, int]
-    """The gripper config of GELLO. This is a tuple of (gripper_joint_id, degrees in open_position, degrees in closed_position)."""
+    gripper_config: Optional[Tuple[int, int, int]] = None
+    """Optional gripper config of GELLO as (gripper_joint_id, open_degrees, closed_degrees)."""
 
     def __post_init__(self):
         assert len(self.joint_ids) == len(self.joint_offsets)
@@ -90,6 +90,20 @@ PORT_CONFIG_MAP: Dict[str, DynamixelRobotConfig] = {
         ),
         joint_signs=(1, 1, -1, 1, 1, 1),
         gripper_config=(7, 20, -22),
+    ),
+    # UR arm with leader gripper
+    "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTB8HJD7-if00-port0": DynamixelRobotConfig(
+        joint_ids=(1, 2, 3, 4, 5, 6),
+        joint_offsets=(
+            np.pi / 2,
+            np.pi,
+            np.pi,
+            5 * np.pi / 2,
+            2 * np.pi,
+            np.pi / 2,
+        ),
+        joint_signs=(1, 1, -1, 1, 1, 1),
+        gripper_config=(7, 187.71015625, 145.91015625),
     ),
     # Right UR
     "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FT7WBG6A-if00-port0": DynamixelRobotConfig(

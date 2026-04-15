@@ -13,6 +13,7 @@ class Args:
     robot_port: int = 6001
     hostname: str = "127.0.0.1"
     robot_ip: str = "192.168.1.10"
+    no_gripper: bool = False
 
 
 def launch_robot_server(args: Args):
@@ -73,7 +74,7 @@ def launch_robot_server(args: Args):
         elif args.robot == "ur":
             from gello.robots.ur import URRobot
 
-            robot = URRobot(robot_ip=args.robot_ip)
+            robot = URRobot(robot_ip=args.robot_ip, no_gripper=args.no_gripper)
         elif args.robot == "panda":
             from gello.robots.panda import PandaRobot
 
