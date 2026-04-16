@@ -468,6 +468,8 @@ class UR3MujocoServer:
         self._collision_debug = collision_debug
         self._print_joints = print_joints
         self._show_camera_windows = show_camera_windows
+        self._camera_window_name = "sim_cameras"
+        self._camera_window_initialized = False
         self._state_lock = threading.Lock()
 
         self._arm_dofs = UR3_ARM_DOFS
@@ -625,9 +627,56 @@ class UR3MujocoServer:
 
         import cv2
 
+        tiles = []
+        tile_width = 0
+        tile_height = 0
         for camera_name, camera in self._cameras:
+            if camera_name == "sideview":
+                continue
             image, _ = camera.read()
-            cv2.imshow(f"sim_{camera_name}", image[:, :, ::-1])
+            tile = image[:, :, ::-1].copy()
+            cv2.putText(
+                tile,
+                camera_name,
+                (8, 24),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (255, 255, 255),
+                2,
+                cv2.LINE_AA,
+            )
+            tiles.append(tile)
+            tile_height = max(tile_height, tile.shape[0])
+            tile_width = max(tile_width, tile.shape[1])
+
+        if not tiles:
+            return
+
+        normalized_tiles = [
+            cv2.resize(tile, (tile_width, tile_height), interpolation=cv2.INTER_LINEAR)
+            if tile.shape[:2] != (tile_height, tile_width)
+            else tile
+            for tile in tiles
+        ]
+        cols = 1 if len(normalized_tiles) == 1 else 2
+        rows = (len(normalized_tiles) + cols - 1) // cols
+        while len(normalized_tiles) < rows * cols:
+            normalized_tiles.append(np.zeros((tile_height, tile_width, 3), dtype=np.uint8))
+
+        dashboard_rows = [
+            cv2.hconcat(normalized_tiles[row_start : row_start + cols])
+            for row_start in range(0, len(normalized_tiles), cols)
+        ]
+        dashboard = (
+            dashboard_rows[0]
+            if len(dashboard_rows) == 1
+            else cv2.vconcat(dashboard_rows)
+        )
+
+        if not self._camera_window_initialized:
+            cv2.namedWindow(self._camera_window_name, cv2.WINDOW_NORMAL)
+            self._camera_window_initialized = True
+        cv2.imshow(self._camera_window_name, dashboard)
         cv2.waitKey(1)
 
     def _configure_default_viewer_camera(self, viewer) -> None:
@@ -670,11 +719,11 @@ class UR3MujocoServer:
         for thread in self._camera_threads:
             if thread.is_alive():
                 thread.join(timeout=1.0)
-        if self._show_camera_windows and self._cameras:
+        if self._camera_window_initialized:
             try:
                 import cv2
 
-                cv2.destroyAllWindows()
+                cv2.destroyWindow(self._camera_window_name)
             except Exception:
                 pass
         self._temp_dir.cleanup()
