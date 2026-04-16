@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from pathlib import Path
 import sys
-from typing import Tuple
+from typing import Optional, Tuple
 
 import tyro
 
@@ -22,7 +22,12 @@ class Args:
     robot_port: int = 6001
     hostname: str = "127.0.0.1"
     hz: int = 100
-    start_joints: Tuple[float, ...] = DEFAULT_START_JOINTS
+    use_cameras: bool = False
+    ignore_gripper_during_startup: bool = True
+    wrist_camera_port: int = 5000
+    base_camera_port: int = 5001
+    side_camera_port: int = 5002
+    start_joints: Optional[Tuple[float, ...]] = DEFAULT_START_JOINTS
     mock: bool = False
     verbose: bool = False
     use_save_interface: bool = False
@@ -36,9 +41,14 @@ def main(args: Args) -> None:
             robot_port=args.robot_port,
             hostname=args.hostname,
             hz=args.hz,
+            wrist_camera_port=args.wrist_camera_port,
+            base_camera_port=args.base_camera_port,
+            side_camera_port=args.side_camera_port,
             start_joints=args.start_joints,
             gello_port=args.gello_port,
             mock=args.mock,
+            use_cameras=args.use_cameras,
+            ignore_gripper_during_startup=args.ignore_gripper_during_startup,
             use_save_interface=args.use_save_interface,
             data_dir=args.data_dir,
             verbose=args.verbose,

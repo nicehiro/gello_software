@@ -133,5 +133,10 @@ class DynamixelRobot(Robot):
         self._driver.set_torque_mode(mode)
         self._torque_on = mode
 
+    def close(self) -> None:
+        close = getattr(self._driver, "close", None)
+        if close is not None:
+            close()
+
     def get_observations(self) -> Dict[str, np.ndarray]:
         return {"joint_state": self.get_joint_state()}
