@@ -5,6 +5,26 @@ import numpy as np
 from gello.robots.robot import Robot
 
 
+def _rotvec_to_quaternion_xyzw(rotvec: np.ndarray) -> np.ndarray:
+    rotvec = np.asarray(rotvec, dtype=float).reshape(3)
+    angle = float(np.linalg.norm(rotvec))
+    if angle < 1e-12:
+        return np.array([0.0, 0.0, 0.0, 1.0], dtype=float)
+
+    axis = rotvec / angle
+    half_angle = 0.5 * angle
+    sin_half = float(np.sin(half_angle))
+    return np.array(
+        [
+            axis[0] * sin_half,
+            axis[1] * sin_half,
+            axis[2] * sin_half,
+            float(np.cos(half_angle)),
+        ],
+        dtype=float,
+    )
+
+
 class URRobot(Robot):
     """A class representing a UR robot."""
 
@@ -18,6 +38,7 @@ class URRobot(Robot):
         except Exception as e:
             print(e)
             print(robot_ip)
+            raise
 
         self.r_inter = rtde_receive.RTDEReceiveInterface(robot_ip)
         if not no_gripper:
@@ -26,7 +47,6 @@ class URRobot(Robot):
             self.gripper = RobotiqGripper()
             self.gripper.connect(hostname=robot_ip, port=63352)
             print("gripper connected")
-            # gripper.activate()
 
         [print("connect") for _ in range(4)]
 
@@ -35,11 +55,6 @@ class URRobot(Robot):
         self._use_gripper = not no_gripper
 
     def num_dofs(self) -> int:
-        """Get the number of joints of the robot.
-
-        Returns:
-            int: The number of joints of the robot.
-        """
         if self._use_gripper:
             return 7
         return 6
@@ -53,28 +68,16 @@ class URRobot(Robot):
         return gripper_pos / 255
 
     def get_joint_state(self) -> np.ndarray:
-        """Get the current state of the leader robot.
-
-        Returns:
-            T: The current state of the leader robot.
-        """
-        robot_joints = self.r_inter.getActualQ()
+        robot_joints = np.asarray(self.r_inter.getActualQ(), dtype=float)
         if self._use_gripper:
             gripper_pos = self._get_gripper_pos()
-            pos = np.append(robot_joints, gripper_pos)
-        else:
-            pos = robot_joints
-        return pos
+            return np.concatenate([robot_joints, [gripper_pos]])
+        return robot_joints
 
     def command_joint_state(self, joint_state: np.ndarray) -> None:
-        """Command the leader robot to a given state.
-
-        Args:
-            joint_state (np.ndarray): The state to command the leader robot to.
-        """
         velocity = 0.5
         acceleration = 0.5
-        dt = 1.0 / 500  # 2ms
+        dt = 1.0 / 500
         lookahead_time = 0.2
         gain = 100
 
@@ -89,19 +92,9 @@ class URRobot(Robot):
         self.robot.waitPeriod(t_start)
 
     def freedrive_enabled(self) -> bool:
-        """Check if the robot is in freedrive mode.
-
-        Returns:
-            bool: True if the robot is in freedrive mode, False otherwise.
-        """
         return self._free_drive
 
     def set_freedrive_mode(self, enable: bool) -> None:
-        """Set the freedrive mode of the robot.
-
-        Args:
-            enable (bool): True to enable freedrive mode, False to disable it.
-        """
         if enable and not self._free_drive:
             self._free_drive = True
             self.robot.freedriveMode()
@@ -110,14 +103,28 @@ class URRobot(Robot):
             self.robot.endFreedriveMode()
 
     def get_observations(self) -> Dict[str, np.ndarray]:
-        joints = self.get_joint_state()
-        pos_quat = np.zeros(7)
-        gripper_pos = np.array([joints[-1]])
+        joint_positions_arm = np.asarray(self.r_inter.getActualQ(), dtype=float)
+        joint_velocities_arm = np.asarray(self.r_inter.getActualQd(), dtype=float)
+        tcp_pose = np.asarray(self.r_inter.getActualTCPPose(), dtype=float)
+
+        ee_pos = tcp_pose[:3]
+        ee_quat = _rotvec_to_quaternion_xyzw(tcp_pose[3:6])
+
+        if self._use_gripper:
+            gripper_pos = float(self._get_gripper_pos())
+            joint_positions = np.concatenate([joint_positions_arm, [gripper_pos]])
+            joint_velocities = np.concatenate([joint_velocities_arm, [0.0]])
+            gripper_position = np.array([gripper_pos], dtype=float)
+        else:
+            joint_positions = joint_positions_arm
+            joint_velocities = joint_velocities_arm
+            gripper_position = np.array([0.0], dtype=float)
+
         return {
-            "joint_positions": joints,
-            "joint_velocities": joints,
-            "ee_pos_quat": pos_quat,
-            "gripper_position": gripper_pos,
+            "joint_positions": joint_positions,
+            "joint_velocities": joint_velocities,
+            "ee_pos_quat": np.concatenate([ee_pos, ee_quat]),
+            "gripper_position": gripper_position,
         }
 
 

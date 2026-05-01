@@ -70,10 +70,10 @@ class RealSenseCamera(CameraDriver):
         depth_image = np.asanyarray(depth_frame.get_data())
         # depth_image = cv2.convertScaleAbs(depth_image, alpha=0.03)
         if img_size is None:
-            image = color_image[:, :, ::-1]
+            image = np.ascontiguousarray(color_image[:, :, ::-1])
             depth = depth_image
         else:
-            image = cv2.resize(color_image, img_size)[:, :, ::-1]
+            image = np.ascontiguousarray(cv2.resize(color_image, img_size)[:, :, ::-1])
             depth = cv2.resize(depth_image, img_size)
 
         # rotate 180 degree's because everything is upside down in order to center the camera

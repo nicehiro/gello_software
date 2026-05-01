@@ -71,7 +71,17 @@ class DynamixelRobot(Robot):
 
         if real:
             self._driver = DynamixelDriver(joint_ids, port=port, baudrate=baudrate)
-            self._driver.set_torque_mode(False)
+            torque_disabled = False
+            last_error: Optional[Exception] = None
+            for _ in range(3):
+                try:
+                    self._driver.set_torque_mode(False)
+                    torque_disabled = True
+                    break
+                except Exception as exc:
+                    last_error = exc
+            if not torque_disabled and last_error is not None:
+                raise RuntimeError("Failed to disable GELLO torque during init.") from last_error
         else:
             self._driver = FakeDynamixelDriver(joint_ids)
         self._torque_on = False

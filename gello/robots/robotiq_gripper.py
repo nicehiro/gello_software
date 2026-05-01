@@ -275,6 +275,19 @@ class RobotiqGripper:
                 f"Gripper auto-calibrated to [{self.get_min_position()}, {self.get_max_position()}]"
             )
 
+    def _get_status(self) -> OrderedDict[str, int]:
+        return OrderedDict(
+            [
+                (self.ACT, self._get_var(self.ACT)),
+                (self.STA, self._get_var(self.STA)),
+                (self.GTO, self._get_var(self.GTO)),
+                (self.PRE, self._get_var(self.PRE)),
+                (self.POS, self._get_var(self.POS)),
+                (self.OBJ, self._get_var(self.OBJ)),
+                (self.FLT, self._get_var(self.FLT)),
+            ]
+        )
+
     def move(self, position: int, speed: int, force: int) -> Tuple[bool, int]:
         """Sends commands to start moving towards the given position, with the specified speed and force.
 
@@ -295,21 +308,30 @@ class RobotiqGripper:
         clip_spe = clip_val(self._min_speed, speed, self._max_speed)
         clip_for = clip_val(self._min_force, force, self._max_force)
 
-        # moves to the given position with the given speed and force
-        var_dict = OrderedDict(
-            [
-                (self.POS, clip_pos),
-                (self.SPE, clip_spe),
-                (self.FOR, clip_for),
-                (self.GTO, 1),
-            ]
+        # Some grippers get stuck if POS and GTO are sent in the same SET command.
+        # Send them separately: enable go-to mode first, then publish the target position.
+        succ = self._set_vars(
+            OrderedDict(
+                [
+                    (self.SPE, clip_spe),
+                    (self.FOR, clip_for),
+                    (self.GTO, 1),
+                ]
+            )
         )
-        succ = self._set_vars(var_dict)
-        time.sleep(0.008)  # need to wait (dont know why)
+        time.sleep(0.008)
+        succ = self._set_var(self.POS, clip_pos) and succ
+        time.sleep(0.008)
         return succ, clip_pos
 
     def move_and_wait_for_pos(
-        self, position: int, speed: int, force: int
+        self,
+        position: int,
+        speed: int,
+        force: int,
+        timeout: float = 10.0,
+        poll_interval: float = 0.01,
+        stall_timeout: float = 0.5,
     ) -> Tuple[int, ObjectStatus]:  # noqa
         """Sends commands to start moving towards the given position, with the specified speed and force, and then waits for the move to complete.
 
@@ -328,21 +350,45 @@ class RobotiqGripper:
         if not set_ok:
             raise RuntimeError("Failed to set variables for move.")
 
-        # wait until the gripper acknowledges that it will try to go to the requested position
+        deadline = time.monotonic() + timeout
         while self._get_var(self.PRE) != cmd_pos:
-            time.sleep(0.001)
+            if time.monotonic() >= deadline:
+                raise TimeoutError(
+                    f"Timed out waiting for PRE={cmd_pos}. status={dict(self._get_status())}"
+                )
+            time.sleep(min(poll_interval, 0.01))
 
-        # wait until not moving
-        cur_obj = self._get_var(self.OBJ)
-        while (
-            RobotiqGripper.ObjectStatus(cur_obj) == RobotiqGripper.ObjectStatus.MOVING
-        ):
+        last_pos = self._get_var(self.POS)
+        last_progress_time = time.monotonic()
+
+        while True:
             cur_obj = self._get_var(self.OBJ)
+            final_pos = self._get_var(self.POS)
+            fault = self._get_var(self.FLT)
+            if fault != 0:
+                raise RuntimeError(
+                    f"Gripper fault FLT={fault}. status={dict(self._get_status())}"
+                )
 
-        # report the actual position and the object status
-        final_pos = self._get_var(self.POS)
-        final_obj = cur_obj
-        return final_pos, RobotiqGripper.ObjectStatus(final_obj)
+            status = RobotiqGripper.ObjectStatus(cur_obj)
+            if status != RobotiqGripper.ObjectStatus.MOVING:
+                return final_pos, status
+
+            now = time.monotonic()
+            if final_pos != last_pos:
+                last_pos = final_pos
+                last_progress_time = now
+            elif now - last_progress_time >= stall_timeout:
+                self._set_var(self.GTO, 1)
+                time.sleep(0.008)
+                self._set_var(self.POS, cmd_pos)
+                last_progress_time = now
+
+            if now >= deadline:
+                raise TimeoutError(
+                    f"Timed out waiting for move to finish. status={dict(self._get_status())}"
+                )
+            time.sleep(poll_interval)
 
 
 def main():
